@@ -1,0 +1,49 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "tether/core",
+    "description": "Core primitives for the Tether offline-first sync system.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "orchestra/testbench": "^10.0",
+        "symplify/easy-coding-standard": "^13.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tether\\Core\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Tether\\Core\\TetherCoreServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "test": [
+            "@php vendor/bin/pest"
+        ],
+        "ecs": [
+            "@php vendor/bin/ecs --fix"
+        ]
+    }
+}
