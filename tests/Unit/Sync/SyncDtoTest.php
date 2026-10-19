@@ -63,3 +63,97 @@ it('serializes sync status for diagnostics', function () {
         'last_sync_at' => '2026-05-16T12:00:00+00:00',
     ]);
 });
+
+it('round-trips pull request cursors without losing integer precision', function (?int $cursor, ?int $limit) {
+    $wire = ['client_id' => 'client-1', 'last_sync_cursor' => $cursor];
+    if ($limit !== null) {
+        $wire['limit'] = $limit;
+    }
+
+    $request = new PullRequest('client-1', $cursor, $limit);
+    expect($request->toArray())->toBe($wire)
+        ->and(PullRequest::fromArray($wire)->toArray())->toBe($wire);
+})->with([
+    'initial pull' => [null, null],
+    'zero cursor' => [0, 10],
+    'microsecond cursor' => [1_778_943_000_456_789, 50],
+]);
+
+it('defaults absent and null pull options to an initial unlimited request', function (array $options) {
+    $request = PullRequest::fromArray(['client_id' => 'client-1', ...$options]);
+
+    expect($request->toArray())->toBe(['client_id' => 'client-1', 'last_sync_cursor' => null]);
+})->with([
+    'absent' => [[]],
+    'null' => [['last_sync_cursor' => null, 'limit' => null]],
+]);
+
+it('round-trips a batch of mutations through the push wire format', function () {
+    $wire = [
+        'client_id' => 'client-1',
+        'mutations' => [
+            [
+                'mutation_id' => 'create-1', 'entity_id' => 'entity-1', 'model' => 'Post',
+                'operation' => 'create', 'payload' => ['title' => 'Hello'], 'version' => 1, 'timestamp' => 1000,
+            ],
+            [
+                'mutation_id' => 'delete-1', 'entity_id' => 'entity-2', 'model' => 'Comment',
+                'operation' => 'delete', 'payload' => [], 'version' => 2, 'timestamp' => 2000,
+            ],
+        ],
+    ];
+
+    expect(PushRequest::fromArray($wire)->toArray())->toBe($wire)
+        ->and(PushRequest::fromArray(['client_id' => 'client-1'])->toArray())
+        ->toBe(['client_id' => 'client-1', 'mutations' => []]);
+});
+
+it('accumulates push outcomes without changing previous results', function () {
+    $empty = new PushResult();
+    $applied = $empty->withApplied('accepted-1');
+    $rejected = $applied->withRejected(new PushRejection('rejected-1', 'validation_failed', ['title' => ['Required']]));
+    $complete = $rejected->withConflict(new PushConflict('conflict-1', data: ['server_state' => ['title' => 'Server']]));
+
+    expect($empty->toArray())->toBe(['applied' => [], 'rejected' => [], 'conflicts' => []])
+        ->and($applied->rejected)->toBe([])
+        ->and($rejected->conflicts)->toBe([])
+        ->and($complete->toArray())->toBe([
+            'applied' => ['accepted-1'],
+            'rejected' => [['mutation_id' => 'rejected-1', 'reason' => 'validation_failed', 'data' => ['title' => ['Required']]]],
+            'conflicts' => [['mutation_id' => 'conflict-1', 'reason' => 'conflict', 'data' => ['server_state' => ['title' => 'Server']]]],
+        ])
+        ->and(PushResult::fromArray($complete->toArray())->toArray())->toBe($complete->toArray())
+        ->and(PushResult::fromArray([])->toArray())->toBe($empty->toArray());
+});
+
+it('preserves rejection objects so empty data retains its JSON object shape', function () {
+    $data = new stdClass();
+    $rejection = PushRejection::fromArray(['mutation_id' => 'bad-1', 'reason' => 'invalid', 'data' => $data]);
+
+    expect($rejection->data)->toBe($data)
+        ->and(json_encode($rejection->toArray(), JSON_THROW_ON_ERROR))
+        ->toBe('{"mutation_id":"bad-1","reason":"invalid","data":{}}')
+        ->and(PushRejection::fromArray(['mutation_id' => 'bad-2', 'reason' => 'invalid'])->data)->toBe([]);
+});
+
+it('hydrates default and custom conflict reasons with optional server state', function () {
+    $default = PushConflict::fromArray(['mutation_id' => 'conflict-1']);
+    $wire = [
+        'mutation_id' => 'conflict-2',
+        'reason' => 'version_conflict',
+        'data' => ['server_state' => ['title' => 'Server'], 'server_updated_at' => '2026-10-19T12:00:00Z'],
+    ];
+    $custom = PushConflict::fromArray($wire);
+
+    expect($default->reason)->toBe('conflict')
+        ->and($default->serverState())->toBe([])
+        ->and($custom->serverState())->toBe(['title' => 'Server'])
+        ->and($custom->toArray())->toBe($wire);
+});
+
+it('hydrates empty pull results and snapshots with no payload', function () {
+    expect(PullResult::fromArray([])->toArray())
+        ->toBe(['snapshots' => [], 'new_sync_cursor' => null, 'has_more' => false])
+        ->and(Snapshot::fromArray(['entity_id' => 'entity-1', 'model' => 'Post', 'operation' => 'delete'])->toArray())
+        ->toBe(['entity_id' => 'entity-1', 'model' => 'Post', 'operation' => 'delete', 'payload' => []]);
+});

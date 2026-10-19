@@ -1,6 +1,7 @@
 <?php
 
 use Tether\Core\Enums\OperationType;
+use Tether\Core\Contracts\MutationInterface;
 use Tether\Core\Mutation\Mutation;
 use Tether\Core\Mutation\MutationSerializer;
 
@@ -98,3 +99,24 @@ it('throws on fromArray with invalid operation value', function () {
         'timestamp'   => 1_700_000_000_000,
     ]);
 })->throws(\ValueError::class);
+
+it('serializes developer-provided mutation implementations through the public contract', function () {
+    $mutation = Mockery::mock(MutationInterface::class);
+    $mutation->shouldReceive('getMutationId')->once()->andReturn('custom-mutation');
+    $mutation->shouldReceive('getEntityId')->once()->andReturn('custom-entity');
+    $mutation->shouldReceive('getModel')->once()->andReturn('Post');
+    $mutation->shouldReceive('getOperation')->once()->andReturn(OperationType::Update);
+    $mutation->shouldReceive('getPayload')->once()->andReturn(['title' => 'Custom', 'body' => null]);
+    $mutation->shouldReceive('getVersion')->once()->andReturn(3);
+    $mutation->shouldReceive('getTimestamp')->once()->andReturn(1_700_000_999_000);
+
+    expect((new MutationSerializer())->toArray($mutation))->toBe([
+        'mutation_id' => 'custom-mutation',
+        'entity_id' => 'custom-entity',
+        'model' => 'Post',
+        'operation' => 'update',
+        'payload' => ['title' => 'Custom', 'body' => null],
+        'version' => 3,
+        'timestamp' => 1_700_000_999_000,
+    ]);
+});
