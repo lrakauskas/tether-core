@@ -1,6 +1,7 @@
 name: Unit Tests
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -12,6 +13,7 @@ jobs:
 
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -21,10 +23,30 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
-          coverage: none
+          coverage: xdebug
 
       - name: Install dependencies
         run: composer update --no-interaction --no-progress --prefer-dist
 
       - name: Run tests
-        run: php vendor/bin/pest
+        run: php vendor/bin/pest --coverage --coverage-clover coverage/clover.xml
+        env:
+          XDEBUG_MODE: coverage
+
+      - name: Save coverage report
+        if: ${{ !cancelled() && hashFiles('coverage/clover.xml') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/clover.xml
+          retention-days: 14
+
+      - name: Publish coverage
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/clover.xml
+          disable_search: true
+          use_oidc: true
+          # Coverage hosting availability must not change the test result.
+          fail_ci_if_error: false
